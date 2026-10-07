@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 # ============================================================
-#  转蛋计分器 一键安装脚本
+#  转蛋计分器 一键安装脚本（带 MySQL root 密码交互）
 #  适用：Ubuntu 20.04+ / Debian 11+（apt）  CentOS/RHEL 8+（dnf/yum）
-#  功能：装 Node20 + 检查MySQL + 建库建表 + 部署前后端 + PM2 守护
-#  用法：sudo bash install-zhuandan.sh
-#        sudo DOMAIN=your.domain.com bash install-zhuandan.sh
+#  用法：sudo bash zhuandanhuanjing.sh
+#        sudo MYSQL_ROOT_PASS=root密码 bash zhuandanhuanjing.sh   # 跳过交互
+#        sudo DOMAIN=your.domain.com bash zhuandanhuanjing.sh     # 同时配置 Nginx
 # ============================================================
 set -euo pipefail
 
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[✓]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
+ask()  { echo -e "${CYAN}[?]${NC} $*"; }
 
-# ---------------- 可配置项（可用环境变量覆盖） ----------------
+# ---------------- 可配置项 ----------------
 INSTALL_DIR="${INSTALL_DIR:-/var/www/zhuandan}"
 DB_NAME="${DB_NAME:-zhuandan}"
 DB_USER="${DB_USER:-zhuandan}"
 DB_PASS="${DB_PASS:-$(openssl rand -hex 12 2>/dev/null || head -c 32 /dev/urandom | base64 | tr -d '=+/' | head -c 24)}"
 NODE_PORT="${NODE_PORT:-3000}"
-DOMAIN="${DOMAIN:-}"     # 留空则只用 IP:端口 访问
+DOMAIN="${DOMAIN:-}"
+MYSQL_ROOT_PASS="${MYSQL_ROOT_PASS:-}"
 
 [[ $EUID -eq 0 ]] || die "请用 root 运行：sudo bash $0"
 
@@ -98,7 +100,6 @@ cat > server.js << 'SERVER_EOF'
 require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
-const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -118,7 +119,6 @@ const pool = mysql.createPool({
 
 const bad = (msg, code = 400) => Object.assign(new Error(msg), { status: code });
 
-/* ---------- 房间列表 ---------- */
 app.get('/api/rooms', async (req, res, next) => {
   try {
     const [rows] = await pool.query(`
@@ -132,7 +132,6 @@ app.get('/api/rooms', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ---------- 新建房间（可带初始牌友） ---------- */
 app.post('/api/rooms', async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
@@ -156,7 +155,6 @@ app.post('/api/rooms', async (req, res, next) => {
   } finally { conn.release(); }
 });
 
-/* ---------- 房间详情 ---------- */
 app.get('/api/rooms/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -172,7 +170,6 @@ app.get('/api/rooms/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ---------- 添加牌友 ---------- */
 app.post('/api/rooms/:id/players', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -187,7 +184,6 @@ app.post('/api/rooms/:id/players', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ---------- 退场 / 归队 ---------- */
 app.patch('/api/players/:id', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -198,7 +194,6 @@ app.patch('/api/players/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* ---------- 记录一局 ---------- */
 app.post('/api/rooms/:id/rounds', async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
@@ -244,7 +239,6 @@ app.post('/api/rooms/:id/rounds', async (req, res, next) => {
   } finally { conn.release(); }
 });
 
-/* ---------- 撤销上局 ---------- */
 app.delete('/api/rooms/:id/rounds/last', async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
@@ -274,7 +268,6 @@ app.delete('/api/rooms/:id/rounds/last', async (req, res, next) => {
   } finally { conn.release(); }
 });
 
-/* ---------- 错误处理 ---------- */
 app.use((err, req, res, _next) => {
   console.error('[ERROR]', err.message);
   res.status(err.status || 500).json({ error: err.message || '服务器内部错误' });
@@ -297,7 +290,7 @@ PORT=${NODE_PORT}
 ENV_EOF
 chmod 600 .env
 
-# ---------------- 8. 写入 index.html（前端） ----------------
+# ---------------- 8. 写入 index.html ----------------
 cat > index.html << 'HTML_EOF'
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -677,8 +670,16 @@ async function doAddPlayer() {
 </html>
 HTML_EOF
 
-# ---------------- 9. 初始化数据库 ----------------
-log "初始化数据库 ..."
+# ============================================================
+#  9. 初始化数据库（交互式验证 root 密码）
+# ============================================================
+echo
+echo "================================================================"
+echo "  准备初始化 MySQL 数据库"
+echo "  将创建：数据库 ${DB_NAME}、用户 ${DB_USER}"
+echo "================================================================"
+echo
+
 SQL_FILE=$(mktemp)
 cat > "$SQL_FILE" <<SQL_EOF
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -720,14 +721,63 @@ CREATE TABLE IF NOT EXISTS rounds (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 SQL_EOF
 
-if mysql -uroot < "$SQL_FILE" 2>/dev/null; then
-  log "数据库初始化完成（root 免密）"
-elif sudo mysql < "$SQL_FILE" 2>/dev/null; then
-  log "数据库初始化完成（sudo mysql）"
-else
-  warn "自动初始化失败，请手动执行以下文件：$SQL_FILE"
-  warn "或参考脚本末尾的 SQL 手动建库"
-  die "数据库初始化失败"
+# --- 先尝试免密（root 无密码 或 sudo mysql） ---
+db_ok=0
+if mysql -uroot -e "SELECT 1" >/dev/null 2>&1; then
+  mysql -uroot < "$SQL_FILE" && db_ok=1
+  [[ $db_ok -eq 1 ]] && log "数据库初始化完成（root 免密）"
+elif sudo mysql -e "SELECT 1" >/dev/null 2>&1; then
+  sudo mysql < "$SQL_FILE" && db_ok=1
+  [[ $db_ok -eq 1 ]] && log "数据库初始化完成（sudo mysql）"
+fi
+
+# --- 免密失败：交互式询问 root 密码 ---
+if [[ $db_ok -eq 0 ]]; then
+  # 如果环境变量已给密码，先试一次
+  if [[ -n "$MYSQL_ROOT_PASS" ]]; then
+    if mysql -uroot -p"$MYSQL_ROOT_PASS" -e "SELECT 1" >/dev/null 2>&1; then
+      mysql -uroot -p"$MYSQL_ROOT_PASS" < "$SQL_FILE" && db_ok=1
+      [[ $db_ok -eq 1 ]] && log "数据库初始化完成（使用 MYSQL_ROOT_PASS 环境变量）"
+    else
+      warn "环境变量 MYSQL_ROOT_PASS 无法连接 MySQL，转为交互输入"
+    fi
+  fi
+fi
+
+# --- 交互式重试最多 3 次 ---
+if [[ $db_ok -eq 0 ]]; then
+  echo
+  warn "自动登录 MySQL root 失败，需要你手动提供 root 密码"
+  echo
+  for attempt in 1 2 3; do
+    ask "请输入 MySQL root 密码（第 ${attempt}/3 次，输入不回显）："
+    read -r -s ROOT_PW
+    echo
+
+    if [[ -z "$ROOT_PW" ]]; then
+      warn "未输入密码，重试"
+      continue
+    fi
+
+    if mysql -uroot -p"$ROOT_PW" -e "SELECT 1" >/dev/null 2>&1; then
+      log "密码验证成功，正在初始化数据库 ..."
+      if mysql -uroot -p"$ROOT_PW" < "$SQL_FILE"; then
+        db_ok=1
+        MYSQL_ROOT_PASS="$ROOT_PW"
+        break
+      else
+        warn "SQL 执行失败，请检查上方错误信息"
+      fi
+    else
+      warn "密码错误，请重试"
+    fi
+  done
+fi
+
+if [[ $db_ok -eq 0 ]]; then
+  warn "自动初始化失败，SQL 文件保留在：$SQL_FILE"
+  warn "你可以稍后手动执行：mysql -uroot -p < $SQL_FILE"
+  die "数据库初始化失败，请检查 MySQL root 账号密码后重新运行脚本"
 fi
 rm -f "$SQL_FILE"
 
@@ -749,7 +799,7 @@ log "配置 PM2 开机自启 ..."
 pm2 startup systemd -u root --hp /root 2>&1 | tail -n 1 | bash >/dev/null 2>&1 \
   || warn "PM2 开机自启未配置成功，可手动执行：pm2 startup"
 
-# ---------------- 12. 可选：Nginx 反向代理 ----------------
+# ---------------- 12. 可选：Nginx ----------------
 if [[ -n "$DOMAIN" ]]; then
   if ! command -v nginx >/dev/null 2>&1; then
     log "安装 Nginx ..."
