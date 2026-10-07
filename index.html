@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<title>转蛋计分器</title>
+<style>
+:root{
+  --bg:#0b1220; --card:#151f33; --card2:#1b2740; --line:#26344f;
+  --txt:#e8eefc; --sub:#8fa1c0;
+  --green:#34d399; --red:#fb7185; --blue:#38bdf8; --gold:#fbbf24;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--txt);padding-bottom:48px;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+#app{max-width:720px;margin:0 auto;padding:16px}
+h2{font-size:14px;margin:0;color:var(--sub);font-weight:700;letter-spacing:.6px}
+header.top{display:flex;align-items:center;gap:10px;margin:4px 0 16px}
+header.top h1{font-size:20px;margin:0;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.back{
+  color:var(--sub);text-decoration:none;font-size:22px;line-height:1;
+  width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);border-radius:10px;flex:none;
+}
+.back:active{background:var(--card2)}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.card .hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.card .hd h2{margin:0}
+.sub{color:var(--sub);font-size:12px}
+.empty{color:var(--sub);font-size:14px;text-align:center;padding:10px 0;margin:0}
+
+input{
+  width:100%;background:var(--card2);border:1px solid var(--line);border-radius:10px;
+  padding:12px 14px;color:var(--txt);font-size:16px;outline:none;margin-bottom:10px;
+  font-family:inherit;
+}
+input:focus{border-color:var(--blue)}
+input::placeholder{color:#5b6d8c}
+
+button{font-family:inherit;font-size:15px;cursor:pointer;border:none;border-radius:10px}
+.primary{width:100%;background:var(--blue);color:#04233a;font-weight:800;padding:14px;font-size:16px}
+.primary:disabled{opacity:.3;cursor:not-allowed}
+.primary.small{width:auto;padding:0 18px;font-size:15px;white-space:nowrap}
+.ghost{background:transparent;border:1px solid var(--line);color:var(--sub);padding:6px 12px;font-size:13px}
+.ghost:active{background:var(--card2)}
+
+/* ---- 房间列表 ---- */
+a.room{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit}
+a.room:active{background:var(--card2)}
+.room-main{flex:1;min-width:0}
+.rname{font-size:16px;font-weight:700;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arrow{color:var(--sub);font-size:22px;flex:none}
+
+/* ---- 积分榜 ---- */
+.rank-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:15px}
+.rank-row:last-child{border-bottom:none}
+.rank-row.off{opacity:.42}
+.rank-no{width:20px;color:var(--sub);font-size:12px;font-weight:700;flex:none;text-align:center}
+.rank-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rank-score{font-weight:800;font-size:17px;font-variant-numeric:tabular-nums;min-width:52px;text-align:right}
+.rank-score.pos{color:var(--green)}
+.rank-score.neg{color:var(--red)}
+.rank-score.zero{color:var(--sub)}
+.tag-off{font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:6px;padding:1px 6px;flex:none}
+
+/* ---- 分值选择 ---- */
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.seg button{background:var(--card2);border:1px solid var(--line);color:var(--txt);padding:11px;font-weight:700;font-size:15px}
+.seg button.on{background:var(--blue);color:#04233a;border-color:var(--blue)}
+
+/* ---- 选人 ---- */
+.pick-block{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.pick-block.win{border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.05)}
+.pick-block.lose{border-color:rgba(251,113,133,.45);background:rgba(251,113,133,.05)}
+.pick-hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;gap:8px}
+.pick-hd span{font-weight:700;font-size:14px}
+.pick-block.win .pick-hd span{color:var(--green)}
+.pick-block.lose .pick-hd span{color:var(--red)}
+.pick-hd em{font-style:normal;font-size:12px;color:var(--sub);white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:var(--card2);border:1px solid var(--line);color:var(--txt);padding:9px 15px;border-radius:999px;font-size:14px;transition:.12s}
+.chip:active{transform:scale(.95)}
+.chip.win.on{background:var(--green);color:#04301f;border-color:var(--green);font-weight:800}
+.chip.lose.on{background:var(--red);color:#3a0410;border-color:var(--red);font-weight:800}
+.chip.dim{opacity:.25}
+
+/* ---- 对局记录 ---- */
+.round{display:flex;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line)}
+.round:last-child{border-bottom:none}
+.round .seq{color:var(--sub);font-size:12px;width:30px;flex:none;padding-top:3px}
+.round .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.rline{display:flex;align-items:center;gap:8px;font-size:14px}
+.rline .names{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:11px;padding:1px 6px;border-radius:6px;flex:none;font-weight:800}
+.tag.win{background:rgba(52,211,153,.16);color:var(--green)}
+.tag.lose{background:rgba(251,113,133,.16);color:var(--red)}
+.pts{font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;flex:none}
+.pts.pos{color:var(--green)}
+.pts.neg{color:var(--red)}
+.rtime{color:var(--sub);font-size:11px;flex:none;padding-top:3px}
+
+/* ---- 牌友管理 ---- */
+.addrow{display:flex;gap:8px;margin-bottom:12px}
+.addrow input{margin-bottom:0;flex:1;min-width:0}
+.prow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:15px}
+.prow:last-child{border-bottom:none}
+.prow.off{opacity:.45}
+.prow .pname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+
+/* ========== 工具 ========== */
+const $app = document.getElementById('app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const fmtTime = t => {
+  const d = new Date(t);
+  if (isNaN(d.getTime())) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+async function api(url, opt = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opt
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '请求失败');
+  return data;
+}
+
+/* ========== 状态 ========== */
+const state = {
+  view: 'list',        // 'list' | 'room'
+  rooms: [],
+  roomId: null,
+  room: null,
+  players: [],
+  rounds: [],
+  point: 1,            // 本局分值
+  winners: [],         // 已选胜者 id
+  losers: [],          // 已选负者 id
+  manageOpen: true,
+  draftName: '',       // 待添加牌友输入框草稿
+  draftRoomName: ''    // 新建房间名称草稿
+};
+
+/* ========== 路由 ========== */
+function route() {
+  const hash = location.hash.slice(1) || '/';
+  const m = hash.match(/^\/r\/(\d+)$/);
+
+  if (m) {
+    const id = Number(m[1]);
+    if (id !== state.roomId) {
+      state.roomId = id;
+      state.winners = [];
+      state.losers = [];
+      state.point = 1;
+      state.draftName = '';
+    }
+    loadRoom(id);
+  } else {
+    state.roomId = null;
+    loadList();
+  }
+}
+window.addEventListener('hashchange', route);
+window.addEventListener('DOMContentLoaded', route);
+
+/* ========== 数据加载 ========== */
+async function loadList() {
+  state.view = 'list';
+  try {
+    state.rooms = await api('/api/rooms');
+  } catch (e) {
+    state.rooms = [];
+  }
+  render();
+}
+
+async function loadRoom(id) {
+  try {
+    const data = await api('/api/rooms/' + id);
+    state.view = 'room';
+    state.room = data.room;
+    state.players = data.players;
+    state.rounds = data.rounds;
+
+    // 清理已失效的选择
+    const ids = new Set(data.players.map(p => p.id));
+    state.winners = state.winners.filter(i => ids.has(i));
+    state.losers  = state.losers.filter(i => ids.has(i));
+
+    render();
+  } catch (e) {
+    alert(e.message);
+    location.hash = '#/';
+  }
+}
+
+/* ========== 渲染总入口 ========== */
+function render() {
+  if (state.view === 'room' && state.room) renderRoom();
+  else renderList();
+}
+
+/* ========== 首页：房间列表 ========== */
+function renderList() {
+  const rooms = state.rooms;
+
+  $app.innerHTML = `
+    <header class="top"><h1>转蛋计分器</h1></header>
+
+    <section class="card">
+      <h2 style="margin-bottom:12px">新建房间</h2>
+      <input id="roomName" placeholder="房间名称，例如：周三转蛋局" maxlength="40"
+             value="${esc(state.draftRoomName)}">
+      <input id="initPlayers" placeholder="初始牌友，用逗号分隔，如：老王,小李,阿强,大刘" maxlength="120">
+      <button class="primary" id="createRoom">创建房间</button>
+    </section>
+
+    <section>
+      <h2 style="margin:0 0 12px 4px">房间（${rooms.length}）</h2>
+      ${rooms.length ? rooms.map(r => `
+        <a class="card room" href="#/r/${r.id}">
+          <div class="room-main">
+            <div class="rname">${esc(r.name)}</div>
+            <div class="sub">${r.player_count} 人在场 · 已打 ${r.round_count} 局 · ${fmtTime(r.created_at)}</div>
+          </div>
+          <div class="arrow">›</div>
+        </a>`).join('') : '<p class="empty">还没有房间，先建一个吧</p>'}
+    </section>
+  `;
+
+  const roomNameEl = document.getElementById('roomName');
+  const initEl = document.getElementById('initPlayers');
+  const createBtn = document.getElementById('createRoom');
+
+  roomNameEl.addEventListener('input', () => { state.draftRoomName = roomNameEl.value; });
+  roomNameEl.addEventListener('keydown', e => { if (e.key === 'Enter') initEl.focus(); });
+  initEl.addEventListener('keydown', e => { if (e.key === 'Enter') createBtn.click(); });
+
+  createBtn.onclick = async () => {
+    const name = roomNameEl.value.trim();
+    if (!name) return alert('请输入房间名称');
+    const players = initEl.value.split(/[,，、\s]+/).map(s => s.trim()).filter(Boolean);
+    createBtn.disabled = true;
+    try {
+      const r = await api('/api/rooms', {
+        method: 'POST',
+        body: JSON.stringify({ name, players })
+      });
+      state.draftRoomName = '';
+      location.hash = '#/r/' + r.id;
+    } catch (e) {
+      alert(e.message);
+      createBtn.disabled = false;
+    }
+  };
+}
+
+/* ========== 房间页 ========== */
+function renderRoom() {
+  const { room, players, rounds, point, winners, losers } = state;
+  const active = players.filter(p => p.active);
+
+  const nameOf = id => {
+    const p = players.find(x => x.id === id);
+    return p ? p.name : '已删除';
+  };
+
+  const ready = winners.length === 2 && losers.length === 2;
+  const canPlay = active.length >= 4;
+
+  /* 积分榜 */
+  const rankRows = [...players]
+    .sort((a, b) => b.score - a.score || a.id - b.id)
+    .map((p, i) => {
+      const cls = p.score > 0 ? 'pos' : p.score < 0 ? 'neg' : 'zero';
+      const sign = p.score > 0 ? '+' : '';
+      return `<div class="rank-row ${p.active ? '' : 'off'}">
+        <span class="rank-no">${i + 1}</span>
+        <span class="rank-name">${esc(p.name)}</span>
+        ${p.active ? '' : '<span class="tag-off">退场</span>'}
+        <span class="rank-score ${cls}">${sign}${p.score}</span>
+      </div>`;
+    }).join('');
+
+  /* 选人按钮 */
+  const chip = (p, side) => {
+    const on = side === 'win' ? winners.includes(p.id) : losers.includes(p.id);
+    const other = side === 'win' ? losers.includes(p.id) : winners.includes(p.id);
+    return `<button class="chip ${side}${on ? ' on' : ''}${other ? ' dim' : ''}"
+      data-side="${side}" data-id="${p.id}">${esc(p.name)}</button>`;
+  };
+  const winChips  = active.map(p => chip(p, 'win')).join('')  || '<span class="sub">暂无在场牌友</span>';
+  const loseChips = active.map(p => chip(p, 'lose')).join('') || '<span class="sub">暂无在场牌友</span>';
+
+  /* 对局记录 */
+  const roundRows = rounds.slice().reverse().map(r => `
+    <div class="round">
+      <span class="seq">#${r.seq}</span>
+      <div class="body">
+        <div class="rline">
+          <span class="tag win">胜</span>
+          <span class="names">${esc(nameOf(r.w1))} · ${esc(nameOf(r.w2))}</span>
+          <span class="pts pos">+${r.point}</span>
+        </div>
+        <div class="rline">
+          <span class="tag lose">负</span>
+          <span class="names">${esc(nameOf(r.l1))} · ${esc(nameOf(r.l2))}</span>
+          <span class="pts neg">−${r.point}</span>
+        </div>
+      </div>
+      <span class="rtime">${fmtTime(r.created_at)}</span>
+    </div>`).join('');
+
+  $app.innerHTML = `
+    <header class="top">
+      <a class="back" href="#/">‹</a>
+      <h1>${esc(room.name)}</h1>
+    </header>
+
+    <section class="card">
+      <div class="hd">
+        <h2>积分榜</h2>
+        <span class="sub">${active.length} 人在场 / 共 ${players.length} 人</span>
+      </div>
+      ${rankRows || '<p class="empty">还没有牌友，先在下面添加</p>'}
+    </section>
+
+    <section class="card">
+      <div class="hd">
+        <h2>记录本局</h2>
+        ${rounds.length ? '<button class="ghost" id="undoBtn">撤销上局</button>' : ''}
+      </div>
+
+      ${canPlay ? `
+        <div class="seg" id="seg">
+          ${[1, 2, 3].map(v =>
+            `<button data-p="${v}" class="${point === v ? 'on' : ''}">+${v} 分</button>`).join('')}
+        </div>
+
+        <div class="pick-block win">
+          <div class="pick-hd">
+            <span>胜者（${winners.length}/2）</span>
+            <em>各 +${point} 分</em>
+          </div>
+          <div class="chips">${winChips}</div>
+        </div>
+
+        <div class="pick-block lose">
+          <div class="pick-hd">
+            <span>负者（${losers.length}/2）</span>
+            <em>各 −${point} 分</em>
+          </div>
+          <div class="chips">${loseChips}</div>
+        </div>
+
+        <button class="primary" id="submitRound" ${ready ? '' : 'disabled'}>记录本局</button>
+      ` : '<p class="empty">至少需要 4 位在场牌友才能开打</p>'}
+    </section>
+
+    <section class="card">
+      <div class="hd">
+        <h2>牌友管理</h2>
+        <button class="ghost" id="toggleManage">${state.manageOpen ? '收起' : '展开'}</button>
+      </div>
+      ${state.manageOpen ? `
+        <div class="addrow">
+          <input id="newPlayer" placeholder="输入牌友名字" maxlength="20" value="${esc(state.draftName)}">
+          <button class="primary small" id="addPlayerBtn">加入</button>
+        </div>
+        <div class="plist">
+          ${players.map(p => `
+            <div class="prow ${p.active ? '' : 'off'}">
+              <span class="pname">${esc(p.name)}</span>
+              <span class="sub">${p.score > 0 ? '+' : ''}${p.score}</span>
+              <button class="ghost" data-toggle="${p.id}" data-active="${p.active}">
+                ${p.active ? '退场' : '归队'}
+              </button>
+            </div>`).join('') || '<p class="empty">还没有牌友</p>'}
+        </div>
+      ` : ''}
+    </section>
+
+    <section class="card">
+      <h2 style="margin-bottom:12px">对局记录（${rounds.length}）</h2>
+      ${roundRows || '<p class="empty">还没有记录</p>'}
+    </section>
+  `;
+
+  bindRoomEvents();
+}
+
+/* ========== 房间页事件 ========== */
+function bindRoomEvents() {
+  /* 分值切换 */
+  const seg = document.getElementById('seg');
+  if (seg) {
+    seg.querySelectorAll('button').forEach(b => {
+      b.onclick = () => { state.point = Number(b.dataset.p); render(); };
+    });
+  }
+
+  /* 选人 */
+  document.querySelectorAll('.chip').forEach(c => {
+    c.onclick = () => togglePick(c.dataset.side, Number(c.dataset.id));
+  });
+
+  /* 记录本局 */
+  const submit = document.getElementById('submitRound');
+  if (submit) submit.onclick = doSubmitRound;
+
+  /* 撤销上局 */
+  const undo = document.getElementById('undoBtn');
+  if (undo) undo.onclick = doUndo;
+
+  /* 管理面板开合 */
+  const tm = document.getElementById('toggleManage');
+  if (tm) tm.onclick = () => { state.manageOpen = !state.manageOpen; render(); };
+
+  /* 添加牌友 */
+  const np = document.getElementById('newPlayer');
+  if (np) {
+    np.addEventListener('input', () => { state.draftName = np.value; });
+    np.addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('addPlayerBtn').click();
+    });
+  }
+  const addBtn = document.getElementById('addPlayerBtn');
+  if (addBtn) addBtn.onclick = doAddPlayer;
+
+  /* 退场 / 归队 */
+  document.querySelectorAll('[data-toggle]').forEach(b => {
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        await api('/api/players/' + b.dataset.toggle, {
+          method: 'PATCH',
+          body: JSON.stringify({ active: b.dataset.active !== '1' })
+        });
+        await loadRoom(state.roomId);
+      } catch (e) {
+        alert(e.message);
+        b.disabled = false;
+      }
+    };
+  });
+}
+
+/* ========== 选择逻辑 ========== */
+function togglePick(side, id) {
+  const W = state.winners, L = state.losers;
+
+  if (side === 'win') {
+    const i = W.indexOf(id);
+    if (i >= 0) {
+      W.splice(i, 1);
+    } else {
+      if (W.length >= 2) return;             // 胜者最多 2 人
+      const j = L.indexOf(id);
+      if (j >= 0) L.splice(j, 1);            // 从负者中移除
+      W.push(id);
+    }
+  } else {
+    const i = L.indexOf(id);
+    if (i >= 0) {
+      L.splice(i, 1);
+    } else {
+      if (L.length >= 2) return;             // 负者最多 2 人
+      const j = W.indexOf(id);
+      if (j >= 0) W.splice(j, 1);
+      L.push(id);
+    }
+  }
+  render();
+}
+
+/* ========== 操作：记录本局 ========== */
+async function doSubmitRound() {
+  const btn = document.getElementById('submitRound');
+  if (!btn) return;
+  btn.disabled = true;
+
+  try {
+    await api(`/api/rooms/${state.roomId}/rounds`, {
+      method: 'POST',
+      body: JSON.stringify({
+        point: state.point,
+        winners: state.winners,
+        losers: state.losers
+      })
+    });
+    state.winners = [];
+    state.losers = [];
+    await loadRoom(state.roomId);
+  } catch (e) {
+    alert(e.message);
+    btn.disabled = false;
+  }
+}
+
+/* ========== 操作：撤销上局 ========== */
+async function doUndo() {
+  if (!confirm('确定撤销最后一局吗？分数会回退。')) return;
+  try {
+    await api(`/api/rooms/${state.roomId}/rounds/last`, { method: 'DELETE' });
+    await loadRoom(state.roomId);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+/* ========== 操作：添加牌友 ========== */
+async function doAddPlayer() {
+  const name = state.draftName.trim();
+  if (!name) return alert('请输入牌友名字');
+
+  const btn = document.getElementById('addPlayerBtn');
+  btn.disabled = true;
+
+  try {
+    await api(`/api/rooms/${state.roomId}/players`, {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+    state.draftName = '';
+    await loadRoom(state.roomId);
+  } catch (e) {
+    alert(e.message);
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
