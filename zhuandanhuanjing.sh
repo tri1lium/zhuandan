@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  转蛋计分器 一键安装脚本（带 MySQL root 密码交互）
+#  转蛋计分器 一键安装脚本（带 MySQL root 密码交互 / 支持管道执行）
 #  适用：Ubuntu 20.04+ / Debian 11+（apt）  CentOS/RHEL 8+（dnf/yum）
 #  用法：sudo bash zhuandanhuanjing.sh
 #        sudo MYSQL_ROOT_PASS=root密码 bash zhuandanhuanjing.sh   # 跳过交互
@@ -12,7 +12,12 @@ GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC
 log()  { echo -e "${GREEN}[✓]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 die()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
-ask()  { echo -e "${CYAN}[?]${NC} $*"; }
+
+# 从终端读取（即使脚本通过管道执行）
+TTY=/dev/tty
+if [[ ! -e "$TTY" ]]; then TTY=/dev/stdin; fi
+
+ask() { echo -e "${CYAN}[?]${NC} $*" > "$TTY"; }
 
 # ---------------- 可配置项 ----------------
 INSTALL_DIR="${INSTALL_DIR:-/var/www/zhuandan}"
@@ -671,7 +676,7 @@ async function doAddPlayer() {
 HTML_EOF
 
 # ============================================================
-#  9. 初始化数据库（交互式验证 root 密码）
+#  9. 初始化数据库（交互式验证 root 密码 / 支持管道执行）
 # ============================================================
 echo
 echo "================================================================"
@@ -721,7 +726,7 @@ CREATE TABLE IF NOT EXISTS rounds (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 SQL_EOF
 
-# --- 先尝试免密（root 无密码 或 sudo mysql） ---
+# --- 先尝试免密 ---
 db_ok=0
 if mysql -uroot -e "SELECT 1" >/dev/null 2>&1; then
   mysql -uroot < "$SQL_FILE" && db_ok=1
@@ -731,28 +736,31 @@ elif sudo mysql -e "SELECT 1" >/dev/null 2>&1; then
   [[ $db_ok -eq 1 ]] && log "数据库初始化完成（sudo mysql）"
 fi
 
-# --- 免密失败：交互式询问 root 密码 ---
-if [[ $db_ok -eq 0 ]]; then
-  # 如果环境变量已给密码，先试一次
-  if [[ -n "$MYSQL_ROOT_PASS" ]]; then
-    if mysql -uroot -p"$MYSQL_ROOT_PASS" -e "SELECT 1" >/dev/null 2>&1; then
-      mysql -uroot -p"$MYSQL_ROOT_PASS" < "$SQL_FILE" && db_ok=1
-      [[ $db_ok -eq 1 ]] && log "数据库初始化完成（使用 MYSQL_ROOT_PASS 环境变量）"
-    else
-      warn "环境变量 MYSQL_ROOT_PASS 无法连接 MySQL，转为交互输入"
-    fi
+# --- 环境变量指定密码 ---
+if [[ $db_ok -eq 0 && -n "$MYSQL_ROOT_PASS" ]]; then
+  if mysql -uroot -p"$MYSQL_ROOT_PASS" -e "SELECT 1" >/dev/null 2>&1; then
+    mysql -uroot -p"$MYSQL_ROOT_PASS" < "$SQL_FILE" && db_ok=1
+    [[ $db_ok -eq 1 ]] && log "数据库初始化完成（使用 MYSQL_ROOT_PASS 环境变量）"
+  else
+    warn "环境变量 MYSQL_ROOT_PASS 无法连接 MySQL，转为交互输入"
   fi
 fi
 
-# --- 交互式重试最多 3 次 ---
+# --- 交互式输入（从 /dev/tty 读取，兼容管道执行） ---
 if [[ $db_ok -eq 0 ]]; then
-  echo
-  warn "自动登录 MySQL root 失败，需要你手动提供 root 密码"
-  echo
+  echo > "$TTY"
+  echo -e "${YELLOW}[!]${NC} 自动登录 MySQL root 失败，需要你手动提供 root 密码" > "$TTY"
+  echo > "$TTY"
+
   for attempt in 1 2 3; do
-    ask "请输入 MySQL root 密码（第 ${attempt}/3 次，输入不回显）："
-    read -r -s ROOT_PW
-    echo
+    printf "${CYAN}[?]${NC} 请输入 MySQL root 密码（第 %d/3 次，输入不回显）：" "$attempt" > "$TTY"
+    ROOT_PW=""
+    if ! IFS= read -r -s ROOT_PW < "$TTY"; then
+      echo > "$TTY"
+      warn "读取输入失败，请检查终端环境"
+      break
+    fi
+    echo > "$TTY"
 
     if [[ -z "$ROOT_PW" ]]; then
       warn "未输入密码，重试"
